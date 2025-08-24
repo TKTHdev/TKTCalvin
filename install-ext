@@ -1,54 +1,105 @@
 #!/bin/bash
 
-# requires: make, g++, autoconf, libtool, libreadline-dev, svn(subversion),git,unzip,tar,cmake, libsnappy-dev
-mkdir ext
-cd ext
+sudo apt-get update
+sudo apt-get install -y make g++ autoconf libtool libreadline-dev subversion git unzip tar cmake libsnappy-dev
 
-# protobuf
-wget https://github.com/google/protobuf/releases/download/v3.2.0/protobuf-cpp-3.2.0.tar.gz
-tar -xzf protobuf-cpp-3.2.0.tar.gz
-mv protobuf-3.2.0/ protobuf
-rm -fr protobuf-cpp-3.2.0.tar.gz
+# MODIFIED SCRIPT TO PREVENT COMPILER ERRORS AND IMPROVE ROBUSTNESS
+#
+# This script builds libraries that often fail with modern compilers (e.g., g++ > 6).
+# Key changes:
+# 1. `set -e`: The script will exit immediately if any command fails.
+# 2. Build Order: Reordered to build gflags first, as glog depends on it.
+# 3. `CXXFLAGS`: Explicitly sets the C++ standard to 'gnu++11' and enables
+#    Position-Independent Code (`-fPIC`), which is required by some of these libraries.
+# 4. Linking: Explicitly tells glog where to find the gflags library we just built.
+# 5. Idempotency: Checks if a directory exists before downloading and extracting.
+# 6. Parallelism: Uses `nproc` to automatically detect and use all available CPU cores for `make`.
+
+set -e
+
+# --- Global Build Configuration ---
+export CXXFLAGS="-std=gnu++11 -fPIC"
+export BUILD_DIR="$PWD/ext"
+export CPU_CORES=$(nproc)
+
+# --- Directory Setup ---
+echo "Creating build directory: $BUILD_DIR"
+mkdir -p "$BUILD_DIR"
+cd "$BUILD_DIR"
+
+# ==============================================================================
+# 1. gflags v2.0 (Build first as glog depends on it)
+# ==============================================================================
+echo "--- Building gflags ---"
+if [ ! -d "gflags" ]; then
+    wget https://github.com/gflags/gflags/archive/v2.0.tar.gz
+    tar -xzf v2.0.tar.gz
+    rm v2.0.tar.gz
+    mv gflags-2.0/ gflags
+fi
+cd gflags
+# The CXXFLAGS exported above are automatically used by ./configure
+./configure --prefix=$PWD
+make -j$CPU_CORES
+make install
+cd ..
+echo "--- gflags build complete. ---"
+
+
+# ==============================================================================
+# 2. glog v0.3.4 (Depends on gflags)
+# ==============================================================================
+echo "--- Building glog ---"
+if [ ! -d "glog" ]; then
+    wget https://github.com/google/glog/archive/v0.3.4.tar.gz
+    tar -xzf v0.3.4.tar.gz
+    mv glog-0.3.4/ glog
+    rm -f v0.3.4.tar.gz
+fi
+cd glog
+# We must tell glog where to find the gflags we just built.
+CPPFLAGS="-I$BUILD_DIR/gflags/include" LDFLAGS="-L$BUILD_DIR/gflags/lib" ./configure --prefix=$PWD
+make -j$CPU_CORES
+make install
+cd ..
+echo "--- glog build complete. ---"
+
+
+# ==============================================================================
+# 3. Protobuf v3.2.0
+# ==============================================================================
+echo "--- Building Protobuf ---"
+if [ ! -d "protobuf" ]; then
+    wget https://github.com/google/protobuf/releases/download/v3.2.0/protobuf-cpp-3.2.0.tar.gz
+    tar -xzf protobuf-cpp-3.2.0.tar.gz
+    mv protobuf-3.2.0/ protobuf
+    rm -f protobuf-cpp-3.2.0.tar.gz
+fi
 cd protobuf
 ./autogen.sh
 ./configure --prefix=$PWD
-make -j
+make -j$CPU_CORES
 make install
 cd ..
+echo "--- Protobuf build complete. ---"
 
 
-# glog
-wget https://github.com/google/glog/archive/v0.3.4.tar.gz
-tar -xzf v0.3.4.tar.gz
-mv glog-0.3.4/ glog
-rm -fr v0.3.4.tar.gz
-cd glog
-./configure --prefix=$PWD
-make -j
-make install
-cd ..
-
-
-# zeromq
-git clone https://github.com/zeromq/libzmq.git
-mv libzmq zeromq
+# ==============================================================================
+# 4. ZeroMQ (libzmq)
+# ==============================================================================
+echo "--- Building ZeroMQ ---"
+if [ ! -d "zeromq" ]; then
+    git clone https://github.com/zeromq/libzmq.git
+    mv libzmq zeromq
+fi
 cd zeromq
 ./autogen.sh
 ./configure --prefix=$PWD
-make -j
+make -j$CPU_CORES
 make install
 cd ..
+echo "--- ZeroMQ build complete. ---"
 
-
-#gflags
-wget https://github.com/gflags/gflags/archive/v2.0.tar.gz
-tar -xzf v2.0.tar.gz
-rm v2.0.tar.gz
-mv gflags-2.0/ gflags
-cd gflags
-./configure --prefix=$PWD
-make -j
-make install
-cd ..
-
+echo ""
+echo "✅ All libraries built successfully in $BUILD_DIR"
 
