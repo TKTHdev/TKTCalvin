@@ -3,6 +3,8 @@
 sudo apt-get update
 sudo apt-get install -y make g++ autoconf libtool libreadline-dev subversion git unzip tar cmake libsnappy-dev
 
+sudo apt-get install -y pkg-config
+
 # MODIFIED SCRIPT TO PREVENT COMPILER ERRORS AND IMPROVE ROBUSTNESS
 #
 # This script builds libraries that often fail with modern compilers (e.g., g++ > 6).
