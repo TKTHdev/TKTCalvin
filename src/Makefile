@@ -51,12 +51,12 @@ CXXFLAGS := -O2 -DNDEBUG -DNDEBUG -MD -I$(SRCDIR) -I$(OBJDIR) \
             -I$(GFLAGS)/include \
             -Wall -Wno-strict-aliasing -std=c++0x -fno-omit-frame-pointer
 
-LDFLAGS := -lglog -L$(GLOG)/.libs \
-           -lgflags -L$(GFLAGS)/.libs \
-           -lprotobuf -L$(PROTOB)/src/.libs \
+LDFLAGS := -lglog -L$(GLOG)/.libs -Wl,-rpath,$(realpath $(EXTDIR)/glog/.libs) \
+           -lgflags -L$(GFLAGS)/.libs -Wl,-rpath,$(realpath $(EXTDIR)/gflags/.libs) \
+           -lprotobuf -L$(PROTOB)/src/.libs -Wl,-rpath,$(realpath $(EXTDIR)/protobuf/src/.libs) \
            -lrt -lreadline -lpthread
 
-ZMQLDFLAGS := -lzmq -L$(ZEROMQ)/src/.libs
+ZMQLDFLAGS := -lzmq -L$(ZEROMQ)/src/.libs -Wl,-rpath,$(realpath $(EXTDIR)/zeromq/src/.libs)
 
 # Lists that the */Makefile.inc makefile fragments will add to
 OBJDIRS :=
