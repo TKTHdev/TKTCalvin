@@ -63,12 +63,12 @@ DeterministicScheduler::DeterministicScheduler(ClusterConfig* conf,
     pthread_attr_init(&attr);
     CPU_ZERO(&cpuset);
     if (i == 0 || i == 1) {
-      CPU_SET(i, &cpuset);
+      //CPU_SET(i, &cpuset);
     } else {
-      CPU_SET(i+2, &cpuset);
+      //CPU_SET(i+2, &cpuset);
     }
 
-    pthread_attr_setaffinity_np(&attr, sizeof(cpu_set_t), &cpuset);
+    //pthread_attr_setaffinity_np(&attr, sizeof(cpu_set_t), &cpuset);
 
     pthread_create(&(threads_[i]), &attr, WorkerThread, reinterpret_cast<void*>(new pair<uint32, DeterministicScheduler*>(i, this)));
   }
