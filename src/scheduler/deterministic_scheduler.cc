@@ -60,7 +60,7 @@ DeterministicScheduler::DeterministicScheduler(ClusterConfig* conf,
   for (uint32 i = 0; i < NUM_THREADS; i++) {
     pthread_attr_t attr;
     pthread_attr_init(&attr);
-    CPU_ZERO(&cpuset);
+    //CPU_ZERO(&cpuset);
     if (i == 0 || i == 1) {
       //CPU_SET(i, &cpuset);
     } else {
