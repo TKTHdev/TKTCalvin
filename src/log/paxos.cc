@@ -18,7 +18,8 @@ Paxos::Paxos(Log* log, ClusterConfig* config, ConnectionMultiplexer* connection)
   this_machine_id_ = configuration_->local_node_id();
   
   connection_->NewChannel("paxos_log_");
-  
+ 
+  /*
   cpu_set_t cpuset;
   pthread_attr_t attr_writer;
   pthread_attr_init(&attr_writer);
@@ -27,6 +28,7 @@ Paxos::Paxos(Log* log, ClusterConfig* config, ConnectionMultiplexer* connection)
 //  CPU_SET(6, &cpuset);
   //CPU_SET(7, &cpuset);
   //pthread_attr_setaffinity_np(&attr_writer, sizeof(cpu_set_t), &cpuset);
+  */
 
   if (IsLeader()) {
     pthread_create(&leader_thread_, &attr_writer, RunLeaderThread, reinterpret_cast<void*>(this));

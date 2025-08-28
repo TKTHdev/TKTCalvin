@@ -30,8 +30,9 @@ LocalPaxos::LocalPaxos(ClusterConfig* config, ConnectionMultiplexer* connection,
   
   connection_->NewChannel("paxos_log_");
   connection_->NewChannel("paxos_ack_");
-  
-  cpu_set_t cpuset;
+ 
+  /*
+  cpu_set_t cp`uset;
   pthread_attr_t attr_writer;
   pthread_attr_init(&attr_writer);
   CPU_ZERO(&cpuset);
@@ -39,6 +40,7 @@ LocalPaxos::LocalPaxos(ClusterConfig* config, ConnectionMultiplexer* connection,
 //  CPU_SET(6, &cpuset);
   //CPU_SET(7, &cpuset);
   //pthread_attr_setaffinity_np(&attr_writer, sizeof(cpu_set_t), &cpuset);
+  */
 
   if (IsLeader()) {
     if (type != 2) {
