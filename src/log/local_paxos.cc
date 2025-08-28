@@ -31,11 +31,10 @@ LocalPaxos::LocalPaxos(ClusterConfig* config, ConnectionMultiplexer* connection,
   connection_->NewChannel("paxos_log_");
   connection_->NewChannel("paxos_ack_");
  
-  /*
-  cpu_set_t cp`uset;
+  //cpu_set_t cpuset;
   pthread_attr_t attr_writer;
   pthread_attr_init(&attr_writer);
-  CPU_ZERO(&cpuset);
+  //CPU_ZERO(&cpuset);
 //  CPU_SET(2, &cpuset);
 //  CPU_SET(6, &cpuset);
   //CPU_SET(7, &cpuset);

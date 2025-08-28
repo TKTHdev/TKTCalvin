@@ -19,16 +19,14 @@ Paxos::Paxos(Log* log, ClusterConfig* config, ConnectionMultiplexer* connection)
   
   connection_->NewChannel("paxos_log_");
  
-  /*
-  cpu_set_t cpuset;
+  //cpu_set_t cpuset;
   pthread_attr_t attr_writer;
   pthread_attr_init(&attr_writer);
-  CPU_ZERO(&cpuset);
+  //CPU_ZERO(&cpuset);
 //  CPU_SET(2, &cpuset);
 //  CPU_SET(6, &cpuset);
   //CPU_SET(7, &cpuset);
   //pthread_attr_setaffinity_np(&attr_writer, sizeof(cpu_set_t), &cpuset);
-  */
 
   if (IsLeader()) {
     pthread_create(&leader_thread_, &attr_writer, RunLeaderThread, reinterpret_cast<void*>(this));

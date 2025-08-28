@@ -39,19 +39,17 @@ ConnectionMultiplexer::ConnectionMultiplexer(ClusterConfig* config)
   }
 
 
-/*
-cpu_set_t cpuset;
+//cpu_set_t cpuset;
 pthread_attr_t attr;
 pthread_attr_init(&attr);
 
-CPU_ZERO(&cpuset);
+//CPU_ZERO(&cpuset);
 //CPU_SET(3, &cpuset);
 //CPU_SET(4, &cpuset);
 //CPU_SET(5, &cpuset);
 //CPU_SET(6, &cpuset);
 //CPU_SET(7, &cpuset);
 //pthread_attr_setaffinity_np(&attr, sizeof(cpu_set_t), &cpuset);
-*/
 
 
   // Start Multiplexer main loop running in background thread.
