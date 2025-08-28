@@ -53,12 +53,11 @@ DeterministicScheduler::DeterministicScheduler(ClusterConfig* conf,
   cpu_set_t cpuset;
   pthread_attr_t attr1;
   pthread_attr_init(&attr1);
-  CPU_ZERO(&cpuset);
-  //CPU_SET(5, &cpuset);
+  //CPU_ZERO(&cpuset);
+ // CPU_SET(5, &cpuset);
   //pthread_attr_setaffinity_np(&attr1, sizeof(cpu_set_t), &cpuset); 
-  */
   pthread_create(&lock_manager_thread_, &attr1, LockManagerThread, reinterpret_cast<void*>(this));
-
+  */
   // Start all worker threads.
   for (uint32 i = 0; i < NUM_THREADS; i++) {
     pthread_attr_t attr;
