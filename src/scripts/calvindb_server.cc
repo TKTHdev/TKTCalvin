@@ -80,6 +80,7 @@ int main(int argc, char** argv) {
     // Other benchmark
 	application = new Tpcc(config, multiplexer, FLAGS_hot_records);
 	application->InitializeStorage(storage, config);
+	LOG(ERROR) << FLAGS_machine_id << ":Here "; 
   }
 
   LOG(ERROR) << FLAGS_machine_id << ":Created application "; 
