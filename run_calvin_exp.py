@@ -20,6 +20,8 @@ import time
 import re
 import glob
 import statistics
+import select
+import fcntl
 from pathlib import Path
 from datetime import datetime
 
@@ -57,7 +59,7 @@ VARIABLE_FIELDS = {
 }
 
 # Probe values for max_batch_size
-PROBE_BATCH_VALUES = [1, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+PROBE_BATCH_VALUES = [30, 40, 60, 80, 100, 120]
 
 
 class CalvinConfigGenerator:
@@ -553,6 +555,36 @@ class ExperimentRunner:
         
         return latencies
     
+    def _set_nonblocking(self, fd):
+        """Set file descriptor to non-blocking mode."""
+        flags = fcntl.fcntl(fd, fcntl.F_GETFL)
+        fcntl.fcntl(fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+    
+    def _read_available_lines(self, process: subprocess.Popen, timeout: float = 0.1) -> list:
+        """
+        Read all available lines from process stdout without blocking.
+        
+        Returns list of lines read.
+        """
+        lines = []
+        try:
+            # Use select to check if data is available
+            readable, _, _ = select.select([process.stdout], [], [], timeout)
+            if readable:
+                while True:
+                    line = process.stdout.readline()
+                    if line:
+                        lines.append(line)
+                    else:
+                        break
+                    # Check if more data available
+                    readable, _, _ = select.select([process.stdout], [], [], 0)
+                    if not readable:
+                        break
+        except Exception:
+            pass
+        return lines
+    
     def _wait_for_startup(self, process: subprocess.Popen) -> list:
         """
         Wait for the first throughput message indicating cluster is ready.
@@ -560,23 +592,109 @@ class ExperimentRunner:
         Returns list of output lines captured during wait.
         """
         print(f"  Waiting for cluster startup (max {self.MAX_STARTUP_WAIT}s)...")
+        
+        # Set stdout to non-blocking
+        self._set_nonblocking(process.stdout.fileno())
+        
         start_time = time.time()
         output_lines = []
+        line_buffer = ""
         
         while time.time() - start_time < self.MAX_STARTUP_WAIT:
-            line = process.stdout.readline()
-            if line:
-                output_lines.append(line)
-                print(f"    {line.strip()}")
-                
-                # Check if this is a throughput message
-                if self.STARTUP_PATTERN.search(line):
-                    print(f"  Cluster ready! (took {time.time() - start_time:.1f}s)")
-                    return output_lines
+            try:
+                # Try to read available data
+                readable, _, _ = select.select([process.stdout], [], [], 0.5)
+                if readable:
+                    chunk = process.stdout.read(4096)
+                    if chunk:
+                        line_buffer += chunk
+                        # Process complete lines
+                        while '\n' in line_buffer:
+                            line, line_buffer = line_buffer.split('\n', 1)
+                            line = line + '\n'
+                            output_lines.append(line)
+                            print(f"    {line.strip()}")
+                            
+                            # Check if this is a throughput message
+                            if self.STARTUP_PATTERN.search(line):
+                                print(f"  Cluster ready! (took {time.time() - start_time:.1f}s)")
+                                return output_lines, line_buffer
+            except (IOError, BlockingIOError):
+                pass
             time.sleep(0.1)
         
         print(f"  Warning: Startup timeout after {self.MAX_STARTUP_WAIT}s")
-        return output_lines
+        return output_lines, line_buffer
+    
+    def _run_cluster_for_duration(self, config: dict, verbose: bool = True) -> tuple:
+        """
+        Core method to run cluster for the configured duration.
+        
+        This is the single source of truth for how experiments are run.
+        
+        Args:
+            config: Experiment configuration dict
+            verbose: Whether to print output lines
+            
+        Returns:
+            tuple: (output_lines, throughput_stats)
+        """
+        duration = config["BenchmarkConfig"]["duration"]
+        
+        # Start cluster
+        process = self._start_cluster(config)
+        
+        # Wait for first throughput message (cluster ready)
+        output_lines, line_buffer = self._wait_for_startup(process)
+        
+        # Run for duration
+        if verbose:
+            print(f"  Running for {duration}s...")
+        start_time = time.time()
+        
+        try:
+            while time.time() - start_time < duration:
+                # Read output non-blocking
+                try:
+                    readable, _, _ = select.select([process.stdout], [], [], 0.5)
+                    if readable:
+                        chunk = process.stdout.read(4096)
+                        if chunk:
+                            line_buffer += chunk
+                            # Process complete lines
+                            while '\n' in line_buffer:
+                                line, line_buffer = line_buffer.split('\n', 1)
+                                line = line + '\n'
+                                output_lines.append(line)
+                                if verbose:
+                                    print(f"    {line.strip()}")
+                except (IOError, BlockingIOError):
+                    pass
+                time.sleep(0.1)
+        except KeyboardInterrupt:
+            if verbose:
+                print("\n  Interrupted by user")
+        
+        # Kill cluster
+        self._kill_cluster()
+        
+        # Wait for process to finish and get remaining output
+        try:
+            remaining, _ = process.communicate(timeout=10)
+            if remaining:
+                output_lines.append(remaining)
+        except subprocess.TimeoutExpired:
+            process.kill()
+        
+        # Get latency data
+        self._get_data()
+        
+        # Parse results
+        output = ''.join(output_lines)
+        throughput_result = self.throughput_parser.parse_output(output)
+        throughput_stats = self.throughput_parser.get_stats(throughput_result['total'])
+        
+        return output_lines, throughput_result, throughput_stats
     
     def _get_num_servers(self, config: dict) -> int:
         """Get number of servers from config."""
@@ -646,48 +764,11 @@ class ExperimentRunner:
             # Clear data directory
             self._clear_data_dir()
             
-            # Start cluster
-            process = self._start_cluster(config)
-            
-            # Wait for first throughput message (cluster ready)
-            output_lines = self._wait_for_startup(process)
-            
-            # Run for duration
-            print(f"  Running for {duration}s...")
-            start_time = time.time()
-            
-            try:
-                while time.time() - start_time < duration:
-                    # Read output non-blocking
-                    line = process.stdout.readline()
-                    if line:
-                        output_lines.append(line)
-                        print(f"    {line.strip()}")
-                    time.sleep(0.1)
-            except KeyboardInterrupt:
-                print("\n  Interrupted by user")
-            
-            # Kill cluster
-            self._kill_cluster()
-            
-            # Wait for process to finish and get remaining output
-            try:
-                remaining, _ = process.communicate(timeout=10)
-                if remaining:
-                    output_lines.append(remaining)
-            except subprocess.TimeoutExpired:
-                process.kill()
-            
-            # Get latency data
-            self._get_data()
+            # Run experiment using core method
+            output_lines, throughput_result, throughput_stats = self._run_cluster_for_duration(config, verbose=True)
             
             # Save latency to temp before clearing
             self._save_latency_to_temp(rep_idx)
-            
-            # Parse results
-            output = ''.join(output_lines)
-            throughput_result = self.throughput_parser.parse_output(output)
-            throughput_stats = self.throughput_parser.get_stats(throughput_result['total'])
             
             latencies = self.latency_parser.parse_files()
             latency_stats = self.latency_parser.get_stats(latencies)
@@ -823,7 +904,6 @@ class ExperimentRunner:
         config["BenchmarkConfig"]["batch"] = batch
         
         num_servers = self._get_num_servers(config)
-        duration = config["BenchmarkConfig"]["duration"]
         
         # Setup calvin.conf
         self.calvin_config_gen.write_calvin_conf(num_servers)
@@ -832,42 +912,8 @@ class ExperimentRunner:
         # Clear data directory
         self._clear_data_dir()
         
-        # Start cluster
-        process = self._start_cluster(config)
-        
-        # Wait for first throughput message (cluster ready)
-        output_lines = self._wait_for_startup(process)
-        
-        # Run for duration
-        print(f"    Running for {duration}s...")
-        start_time = time.time()
-        
-        try:
-            while time.time() - start_time < duration:
-                line = process.stdout.readline()
-                if line:
-                    output_lines.append(line)
-                time.sleep(0.1)
-        except KeyboardInterrupt:
-            pass
-        
-        # Kill cluster
-        self._kill_cluster()
-        
-        try:
-            remaining, _ = process.communicate(timeout=10)
-            if remaining:
-                output_lines.append(remaining)
-        except subprocess.TimeoutExpired:
-            process.kill()
-        
-        # Get latency data
-        self._get_data()
-        
-        # Parse results
-        output = ''.join(output_lines)
-        throughput_result = self.throughput_parser.parse_output(output)
-        throughput_stats = self.throughput_parser.get_stats(throughput_result['total'])
+        # Run experiment using core method
+        output_lines, throughput_result, throughput_stats = self._run_cluster_for_duration(config, verbose=True)
         
         # Clear data
         self._clear_data_dir()
@@ -1014,6 +1060,179 @@ def run_exp(template_file: str, ip_file: str, probe_run: bool = False,
     return runner
 
 
+def parse_results_only(results_dir: str):
+    """
+    Parse existing results from a results directory and regenerate summary CSV.
+    
+    Args:
+        results_dir: Path to the results directory containing experiment result files
+    """
+    print(f"\n{'#'*60}")
+    print("CalvinDB Results Parser")
+    print(f"{'#'*60}")
+    print(f"Results dir: {results_dir}")
+    
+    if not os.path.isdir(results_dir):
+        print(f"Error: Directory '{results_dir}' does not exist")
+        return
+    
+    # Find all experiment result files (exp_*.txt)
+    result_files = sorted(glob.glob(f"{results_dir}/exp_*.txt"))
+    
+    if not result_files:
+        print(f"Error: No experiment result files (exp_*.txt) found in '{results_dir}'")
+        return
+    
+    print(f"Found {len(result_files)} result files")
+    
+    # Parse each result file
+    all_results = []
+    latency_parser = LatencyParser()
+    
+    # Try to detect variable field from filenames
+    # Format: exp_0_fieldname_value.txt or exp_0.txt
+    variable_field = None
+    
+    for filepath in result_files:
+        filename = os.path.basename(filepath)
+        print(f"\nParsing: {filename}")
+        
+        # Extract variable field and value from filename
+        # exp_0_batch_30.txt -> field=batch, value=30
+        parts = filename.replace('.txt', '').split('_')
+        if len(parts) >= 4:
+            # exp_idx_field_value format
+            variable_field = parts[2]
+            var_value = parts[3]
+            # Try to convert to number if possible
+            try:
+                var_value = int(var_value)
+            except ValueError:
+                try:
+                    var_value = float(var_value)
+                except ValueError:
+                    pass
+        else:
+            var_value = parts[1] if len(parts) > 1 else "0"
+        
+        # Parse the result file
+        throughputs = []
+        latencies_stats_list = []
+        
+        with open(filepath, 'r') as f:
+            content = f.read()
+        
+        # Extract raw throughput values from "Raw values: [...]" lines
+        raw_values_pattern = re.compile(r"Raw values: \[([\d., ]+)\]")
+        for match in raw_values_pattern.finditer(content):
+            values_str = match.group(1)
+            values = [float(v.strip()) for v in values_str.split(',') if v.strip()]
+            throughputs.extend(values)
+        
+        # Extract latency stats from each repetition
+        # Look for latency sections
+        latency_sections = re.findall(
+            r"Latency \(ms\):\s*\n"
+            r"\s*Mean: ([\d.]+)\s*\n"
+            r"\s*Median: ([\d.]+)\s*\n"
+            r"\s*Stddev: ([\d.]+)\s*\n"
+            r"\s*95th percentile: ([\d.]+)\s*\n"
+            r"\s*99th percentile: ([\d.]+)\s*\n"
+            r"\s*Sample count: (\d+)",
+            content
+        )
+        
+        # Use the overall summary if available, otherwise aggregate
+        overall_match = re.search(
+            r"EXPERIMENT SUMMARY.*?"
+            r"Overall Latency:\s*\n"
+            r"\s*Mean: ([\d.]+)\s*\n"
+            r"\s*Median: ([\d.]+)\s*\n"
+            r"\s*Stddev: ([\d.]+)\s*\n"
+            r"\s*95th percentile: ([\d.]+)\s*\n"
+            r"\s*99th percentile: ([\d.]+)",
+            content,
+            re.DOTALL
+        )
+        
+        if overall_match:
+            latency_stats = {
+                "mean": float(overall_match.group(1)),
+                "median": float(overall_match.group(2)),
+                "stddev": float(overall_match.group(3)),
+                "p95": float(overall_match.group(4)),
+                "p99": float(overall_match.group(5)),
+                "count": sum(int(s[5]) for s in latency_sections) if latency_sections else 0
+            }
+        elif latency_sections:
+            # Aggregate from repetitions (use last one's count as approximation)
+            total_count = sum(int(s[5]) for s in latency_sections)
+            # Weighted average based on count
+            latency_stats = {
+                "mean": statistics.mean([float(s[0]) for s in latency_sections]),
+                "median": statistics.mean([float(s[1]) for s in latency_sections]),
+                "stddev": statistics.mean([float(s[2]) for s in latency_sections]),
+                "p95": statistics.mean([float(s[3]) for s in latency_sections]),
+                "p99": statistics.mean([float(s[4]) for s in latency_sections]),
+                "count": total_count
+            }
+        else:
+            latency_stats = {"mean": 0, "median": 0, "stddev": 0, "p95": 0, "p99": 0, "count": 0}
+        
+        print(f"  Throughputs: {len(throughputs)} samples, avg={statistics.mean(throughputs) if throughputs else 0:.2f}")
+        print(f"  Latency: mean={latency_stats['mean']:.2f}, p99={latency_stats['p99']:.2f}, count={latency_stats['count']}")
+        
+        all_results.append({
+            "var_value": var_value,
+            "throughputs": throughputs,
+            "latency_stats": latency_stats
+        })
+    
+    # Generate summary CSV
+    csv_path = f"{results_dir}/summary.csv"
+    
+    with open(csv_path, 'w') as f:
+        # Header
+        header = [
+            variable_field if variable_field else "experiment",
+            "throughput_avg",
+            "throughput_max",
+            "latency_mean",
+            "latency_median",
+            "latency_stddev",
+            "latency_p95",
+            "latency_p99",
+            "sample_count"
+        ]
+        f.write(",".join(header) + "\n")
+        
+        # Data rows
+        for result in all_results:
+            var_value = result["var_value"]
+            throughputs = result["throughputs"]
+            latency_stats = result["latency_stats"]
+            
+            throughput_avg = statistics.mean(throughputs) if throughputs else 0
+            throughput_max = max(throughputs) if throughputs else 0
+            
+            row = [
+                str(var_value),
+                f"{throughput_avg:.2f}",
+                f"{throughput_max:.2f}",
+                f"{latency_stats['mean']:.2f}",
+                f"{latency_stats['median']:.2f}",
+                f"{latency_stats['stddev']:.2f}",
+                f"{latency_stats['p95']:.2f}",
+                f"{latency_stats['p99']:.2f}",
+                str(latency_stats['count'])
+            ]
+            f.write(",".join(row) + "\n")
+    
+    print(f"\n{'#'*60}")
+    print(f"Summary CSV written to: {csv_path}")
+    print(f"{'#'*60}")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Run CalvinDB benchmark experiments",
@@ -1024,14 +1243,17 @@ Examples:
   %(prog)s test.json ips.txt --probe
   %(prog)s test.json ips.txt --single
   %(prog)s test.json ips.txt --auto
+  %(prog)s --parse results/test_20260126_123456
         """
     )
     parser.add_argument(
         "template",
+        nargs='?',
         help="Path to the experiment template JSON file"
     )
     parser.add_argument(
         "ip_list",
+        nargs='?',
         help="Path to the IP list text file (one IP per line)"
     )
     parser.add_argument(
@@ -1052,8 +1274,22 @@ Examples:
         default=False,
         help="Auto mode: probe for optimal batch, then run 5 repetitions (default: False)"
     )
+    parser.add_argument(
+        "--parse",
+        metavar="RESULTS_DIR",
+        help="Parse existing results from a results directory (no experiment run)"
+    )
     
     args = parser.parse_args()
+    
+    # Parse-only mode
+    if args.parse:
+        parse_results_only(args.parse)
+        return
+    
+    # Validate required arguments for experiment mode
+    if not args.template or not args.ip_list:
+        parser.error("template and ip_list are required unless using --parse")
     
     # Validate mutually exclusive options
     if args.auto and (args.probe or args.single):
