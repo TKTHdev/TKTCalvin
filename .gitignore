@@ -74,3 +74,6 @@ bin/
 .vscode
 logs/
 data/
+__pycache__/
+results/
+temp_latency/

@@ -1,0 +1,15 @@
+{
+    "Latency": null,
+    "BenchmarkConfig": {
+        "benchmark_type": "YCSB",
+        "duration": 30,
+        "batch": [30,50,80],
+        "servers": 3
+    },
+    "TPCCConfig": {
+        "NumWarehouse": 100
+    },
+    "YCSBConfig": {
+        "contention_ratio": 0
+    }
+}
