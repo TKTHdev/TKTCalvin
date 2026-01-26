@@ -17,26 +17,14 @@ using std::string;
 
 class ClusterManager {
  public:
-  // Sets initial target config.
+  // Sets initial target config with variable number of replicas.
   ClusterManager(const string& config_file, const string& calvin_path,
                  const string& binary, const uint32& mode, const uint32& type,
-                 const string& ssh_key1, const string& ssh_key2, const string& ssh_key3)
+                 const string& ssh_key)
       : config_file_(config_file), calvin_path_(calvin_path), binary_(binary), mode_(mode), type_(type),
-        ssh_username_("ubuntu"), ssh_key1_(ssh_key1), ssh_key2_(ssh_key2), ssh_key3_(ssh_key3) {
+        ssh_username_("ubuntu"), ssh_key_(ssh_key) {
     config_.FromFile(config_file_);
-    num_replicas_ = 3;
-  }
-
-  // Sets initial target config.
-  ClusterManager(const string& config_file, const string& calvin_path,
-                 const string& binary, const uint32& mode, const uint32& type,
-                 const string& ssh_key1, const string& ssh_key2, const string& ssh_key3,
-                 const string& ssh_key4, const string& ssh_key5, const string& ssh_key6)
-      : config_file_(config_file), calvin_path_(calvin_path), binary_(binary), mode_(mode), type_(type),
-        ssh_username_("ubuntu"), ssh_key1_(ssh_key1), ssh_key2_(ssh_key2), ssh_key3_(ssh_key3),
-        ssh_key4_(ssh_key4), ssh_key5_(ssh_key5), ssh_key6_(ssh_key6) {
-    config_.FromFile(config_file_);
-    num_replicas_ = 6;
+    num_replicas_ = config_.replicas_size();
   }
 
   ~ClusterManager() {
@@ -102,12 +90,7 @@ class ClusterManager {
 
   // For ssh authentication, used for EC2, if test on zoo, just set it " ";
   // If test on EC2, set it to "-i YOUR_KEY.pem"
-  string ssh_key1_;
-  string ssh_key2_;
-  string ssh_key3_;
-  string ssh_key4_;
-  string ssh_key5_;
-  string ssh_key6_;
+  string ssh_key_;
 
   // Number of replicas
   uint32 num_replicas_;

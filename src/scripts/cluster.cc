@@ -3,6 +3,7 @@
 
 #include <gflags/gflags.h>
 #include <glog/logging.h>
+#include <vector>
 
 #include "machine/cluster_manager.h"
 
@@ -11,14 +12,9 @@ DEFINE_string(config, "calvin.conf", "conf file of Calvin cluster");
 DEFINE_string(calvin_path, "/home/ubuntu/CalvinDB", "path to the main calvin directory");
 DEFINE_string(binary, "calvindb_server", "Calvin binary executable program");
 DEFINE_string(lowlatency_binary, "lowlatency_calvindb_server", "Lowlatency Calvin binary executable program");
-DEFINE_string(ssh_key1, "-i ~/.ssh/id_rsa", "ssh_key for the first data center(Virginia)");
-DEFINE_string(ssh_key2, "-i ~/.ssh/id_rsa", "ssh_key for the second data center(Oregon)");
-DEFINE_string(ssh_key3, "-i ~/.ssh/id_rsa", "ssh_key for the third data center(Ireland)");
-DEFINE_string(ssh_key4, "-i ~/.ssh/id_rsa", "ssh_key for the first data center(Virginia)");
-DEFINE_string(ssh_key5, "-i ~/.ssh/id_rsa", "ssh_key for the second data center(Oregon)");
-DEFINE_string(ssh_key6, "-i ~/.ssh/id_rsa", "ssh_key for the third data center(Ireland)");
+DEFINE_string(ssh_key, "-i ~/.ssh/id_rsa", "SSH key for all servers");
 DEFINE_int32(lowlatency, 0, "0: Original CalvinDB ; 1: low latency version of CalvinDB; 2: low latency with access pattern remasters");
-DEFINE_int32(type, 0, "[CalvinDB: 0: 3 replicas; 1: 6 replicas]; [Low latency: 0: 3 replicas normal; 1: 6 replicas normal; 2: 6 replicas strong availbility ] ");
+DEFINE_int32(type, 0, "Reserved for low latency mode: 0: normal; 1: normal; 2: strong availability");
 DEFINE_int32(experiment, 0, "the experiment that you want to run, default is microbenchmark");
 DEFINE_int32(percent_mp, 0, "percent of distributed txns");
 DEFINE_int32(percent_mr, 0, "percent of multi-replica txns");
@@ -30,20 +26,9 @@ int main(int argc, char** argv) {
 
   ClusterManager* cm;
   if (FLAGS_lowlatency == 0) {
-    if (FLAGS_type == 0) {
-      // 3 replicas original CalvinDB
-      cm = new ClusterManager(FLAGS_config, FLAGS_calvin_path, FLAGS_binary, FLAGS_lowlatency, FLAGS_type, FLAGS_ssh_key1, FLAGS_ssh_key2, FLAGS_ssh_key3);
-    } else {
-      cm = new ClusterManager(FLAGS_config, FLAGS_calvin_path, FLAGS_binary, FLAGS_lowlatency, FLAGS_type, FLAGS_ssh_key1, FLAGS_ssh_key2, FLAGS_ssh_key3,
-                              FLAGS_ssh_key4, FLAGS_ssh_key5, FLAGS_ssh_key6); 
-    }
+    cm = new ClusterManager(FLAGS_config, FLAGS_calvin_path, FLAGS_binary, FLAGS_lowlatency, FLAGS_type, FLAGS_ssh_key);
   } else {
-    if (FLAGS_type == 0) {
-        cm = new ClusterManager(FLAGS_config, FLAGS_calvin_path, FLAGS_lowlatency_binary, FLAGS_lowlatency, FLAGS_type, FLAGS_ssh_key1, FLAGS_ssh_key2, FLAGS_ssh_key3);
-    } else {
-        cm = new ClusterManager(FLAGS_config, FLAGS_calvin_path, FLAGS_lowlatency_binary, FLAGS_lowlatency, FLAGS_type, FLAGS_ssh_key1, FLAGS_ssh_key2, FLAGS_ssh_key3,
-                 FLAGS_ssh_key4, FLAGS_ssh_key5, FLAGS_ssh_key6);    
-    } 
+    cm = new ClusterManager(FLAGS_config, FLAGS_calvin_path, FLAGS_lowlatency_binary, FLAGS_lowlatency, FLAGS_type, FLAGS_ssh_key);
   }
 
   if (FLAGS_command == "update") {
