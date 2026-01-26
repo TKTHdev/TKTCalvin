@@ -50,11 +50,11 @@ setup_server() {
         sudo apt install -y build-essential
         
         # Clone the repository
-        echo "=== Cloning TKTCalvin repository ==="
+        echo "=== Cloning CalvinDB repository ==="
         cd $HOME
         rm -rf TKTCalvin
         rm -rf CalvinDB
-        git clone https://github.com/TKTHdev/TKTCalvin.git CalvinDB
+        git clone https://github.com/yunhaom94/TKTCalvin.git CalvinDB
         cd CalvinDB
         
         
