@@ -3,7 +3,7 @@
     "BenchmarkConfig": {
         "benchmark_type": "TPCC",
         "duration": 30,
-        "batch": 30,
+        "batch": 25,
         "servers": [3,6,9,12,15]
     },
     "TPCCConfig": {

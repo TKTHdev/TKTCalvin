@@ -1,9 +1,9 @@
 {
     "Latency": null,
     "BenchmarkConfig": {
-        "benchmark_type": "YCSB",
+        "benchmark_type": "TPCC",
         "duration": 30,
-        "batch": 25,
+        "batch": [20, 25, 30],
         "servers": 3
     },
     "TPCCConfig": {

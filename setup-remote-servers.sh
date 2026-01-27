@@ -36,7 +36,7 @@ setup_server() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting setup for $ip" | tee "$log_file"
     
     # SSH to the server and run commands
-    ssh -i ~/msrg -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=30 "$ip" bash -s << 'REMOTE_SCRIPT' >> "$log_file" 2>&1
+    ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=30 "$ip" bash -s << 'REMOTE_SCRIPT' >> "$log_file" 2>&1
         set -e
         echo "=== Starting setup on $(hostname) ==="
         echo "Date: $(date)"

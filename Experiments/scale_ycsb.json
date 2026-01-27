@@ -3,7 +3,7 @@
     "BenchmarkConfig": {
         "benchmark_type": "YCSB",
         "duration": 30,
-        "batch": 25,
+        "batch": 20,
         "servers": [3,6,9,12,15]
     },
     "TPCCConfig": {
