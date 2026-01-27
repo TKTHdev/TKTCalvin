@@ -32,6 +32,7 @@ DATA_PATH = SCRIPTS_PATH + "/data"
 TEMP_LATENCY_PATH = SCRIPTS_PATH + "/temp_latency"
 CALVIN_CONF_PATH = SCRIPTS_PATH + "/calvin.conf"
 CLUSTER_BIN = SCRIPTS_PATH + "/bin/scripts/cluster"
+NETWORK_SIM_BIN = SCRIPTS_PATH + "/network_sim.sh"
 
 # Default config fields
 BENCHMARK_CONFIG_FIELDS = {
@@ -245,7 +246,14 @@ def load_ip_list(ip_file: str) -> list:
 def load_template(template_file: str) -> dict:
     """Load experiment template from JSON file."""
     with open(template_file, 'r') as f:
-        return json.load(f)
+        template = json.load(f)
+    
+    # Convert Latency inner lists to tuples so they can be used as dict keys
+    if "Latency" in template and isinstance(template["Latency"], list):
+        template["Latency"] = [tuple(item) if isinstance(item, list) else item 
+                               for item in template["Latency"]]
+    
+    return template
 
 
 def generate_exp_config(template: dict, ip_list: list, probe_run: bool = False):
@@ -505,6 +513,64 @@ class ExperimentRunner:
         if result.returncode != 0:
             print(f"  Warning: get-data returned {result.returncode}")
     
+    def _reset_network_latency(self):
+        """Reset network latency on all servers (remove any artificial delay)."""
+        print("  Resetting network latency on all servers...")
+        cmd = [
+            NETWORK_SIM_BIN,
+            '-f', self.ip_file,
+            '-m', 'del'
+        ]
+        print(f"  Running: {' '.join(cmd)}")
+        result = subprocess.run(cmd, capture_output=True, text=True, cwd=SCRIPTS_PATH)
+        if result.returncode != 0:
+            print(f"  Warning: network reset returned {result.returncode}")
+            if result.stderr:
+                print(f"  stderr: {result.stderr}")
+        else:
+            print("  Network latency reset complete")
+    
+    def _set_network_latency(self, latency_ms: int, jitter_ms: int):
+        """
+        Set network latency on all servers.
+        
+        Args:
+            latency_ms: Delay in milliseconds
+            jitter_ms: Jitter in milliseconds
+        """
+        print(f"  Setting network latency: {latency_ms}ms +/- {jitter_ms}ms...")
+        cmd = [
+            NETWORK_SIM_BIN,
+            '-f', self.ip_file,
+            '-m', 'add',
+            '-d', f'{latency_ms}ms',
+            '-j', f'{jitter_ms}ms'
+        ]
+        print(f"  Running: {' '.join(cmd)}")
+        result = subprocess.run(cmd, capture_output=True, text=True, cwd=SCRIPTS_PATH)
+        if result.returncode != 0:
+            print(f"  Warning: network latency set returned {result.returncode}")
+            if result.stderr:
+                print(f"  stderr: {result.stderr}")
+        else:
+            print(f"  Network latency set to {latency_ms}ms +/- {jitter_ms}ms")
+    
+    def _apply_latency_from_config(self, config: dict):
+        """
+        Apply network latency from config if Latency field is set.
+        
+        Args:
+            config: Experiment configuration dict
+        """
+        if "Latency" in config and config["Latency"]:
+            latency_tuple = config["Latency"]
+            if isinstance(latency_tuple, (list, tuple)) and len(latency_tuple) >= 2:
+                latency_ms, jitter_ms = latency_tuple[0], latency_tuple[1]
+                # First reset any existing latency
+                self._reset_network_latency()
+                # Then set the new latency
+                self._set_network_latency(latency_ms, jitter_ms)
+    
     def _clear_data_dir(self):
         """Clear contents of data directory."""
         files = glob.glob(f"{DATA_PATH}/*")
@@ -703,7 +769,12 @@ class ExperimentRunner:
     def _get_result_filename(self, exp_idx: int, var_value) -> str:
         """Generate result filename based on variable field."""
         if self.variable_field:
-            return f"exp_{exp_idx}_{self.variable_field}_{var_value}.txt"
+            # Handle tuple values (like Latency) by converting to a safe string
+            if isinstance(var_value, tuple):
+                var_value_str = f"{var_value[0]}_{var_value[1]}"
+            else:
+                var_value_str = str(var_value)
+            return f"exp_{exp_idx}_{self.variable_field}_{var_value_str}.txt"
         else:
             return f"exp_{exp_idx}.txt"
     
@@ -744,6 +815,9 @@ class ExperimentRunner:
         print(f"  Duration: {duration}s")
         print(f"  Repetitions: {self.repetitions}")
         print(f"{'='*60}")
+        
+        # Apply network latency if configured
+        self._apply_latency_from_config(config)
         
         # Setup calvin.conf
         self.calvin_config_gen.write_calvin_conf(num_servers)
@@ -824,23 +898,24 @@ class ExperimentRunner:
         }
     
     def generate_csv(self, all_results: list):
-        """Generate summary CSV file."""
+        """
+        Generate CSV summary of all experiment results.
+        
+        CSV columns:
+        - variable_field: The variable field value
+        - avg_median_latency_ms: Average of median latency across repetitions (ms)
+        - avg_max_throughput_txs: Average of max throughput across repetitions (txs/sec)
+        - std_max_throughput_txs: Standard deviation of max throughput across repetitions
+        """
         csv_path = f"{self.results_dir}/summary.csv"
         
         with open(csv_path, 'w') as f:
-            # Header
-            header = [
-                self.variable_field if self.variable_field else "experiment",
-                "throughput_avg",
-                "throughput_max",
-                "latency_mean",
-                "latency_median",
-                "latency_stddev",
-                "latency_p95",
-                "latency_p99",
-                "sample_count"
-            ]
-            f.write(",".join(header) + "\n")
+            # Write header - for Latency field, write two columns (latency_ms, jitter_ms)
+            var_field_name = self.variable_field if self.variable_field else "experiment"
+            if var_field_name == "Latency":
+                f.write("latency_ms,jitter_ms,avg_median_latency_ms,avg_max_throughput_txs,std_max_throughput_txs\n")
+            else:
+                f.write(f"{var_field_name},avg_median_latency_ms,avg_max_throughput_txs,std_max_throughput_txs\n")
             
             # Data rows
             for result in all_results:
@@ -848,23 +923,26 @@ class ExperimentRunner:
                 throughputs = result["throughputs"]
                 latencies = result["latencies"]
                 
-                throughput_avg = statistics.mean(throughputs) if throughputs else 0
-                throughput_max = max(throughputs) if throughputs else 0
-                
+                # Calculate median latency
                 latency_stats = self.latency_parser.get_stats(latencies)
+                avg_med_latency = latency_stats['median'] if latency_stats['median'] else 0
                 
-                row = [
-                    str(var_value),
-                    f"{throughput_avg:.2f}",
-                    f"{throughput_max:.2f}",
-                    f"{latency_stats['mean']:.2f}",
-                    f"{latency_stats['median']:.2f}",
-                    f"{latency_stats['stddev']:.2f}",
-                    f"{latency_stats['p95']:.2f}",
-                    f"{latency_stats['p99']:.2f}",
-                    str(latency_stats['count'])
-                ]
-                f.write(",".join(row) + "\n")
+                # Calculate average of max throughputs
+                avg_max_throughput = statistics.mean(throughputs) if throughputs else 0
+                
+                # Standard deviation (use 0 if only one sample)
+                if len(throughputs) > 1:
+                    std_max_throughput = statistics.stdev(throughputs)
+                else:
+                    std_max_throughput = 0.0
+                
+                # Handle tuple values (like Latency)
+                if isinstance(var_value, tuple):
+                    var_value_str = f"{var_value[0]},{var_value[1]}"
+                else:
+                    var_value_str = str(var_value)
+                
+                f.write(f"{var_value_str},{avg_med_latency:.2f},{avg_max_throughput:.2f},{std_max_throughput:.2f}\n")
         
         print(f"\nSummary CSV written to: {csv_path}")
     
@@ -881,12 +959,18 @@ class ExperimentRunner:
         print(f"Total experiments: {len(self.configs)}")
         print(f"Repetitions per experiment: {self.repetitions}")
         
+        # Always reset network latency at the beginning
+        self._reset_network_latency()
+        
         all_results = []
         
         for exp_idx, config in enumerate(self.configs):
             var_value = self.variable_values[exp_idx] if self.variable_values else None
             result = self.run_single_experiment(exp_idx, config, var_value)
             all_results.append(result)
+        
+        # Reset network latency after all experiments
+        self._reset_network_latency()
         
         # Generate summary CSV
         self.generate_csv(all_results)
@@ -1005,6 +1089,9 @@ class AutoExperimentRunner(ExperimentRunner):
         print(f"Variable values: {self.variable_values}")
         print(f"Total experiments: {len(self.configs)}")
         
+        # Always reset network latency at the beginning
+        self._reset_network_latency()
+        
         all_results = []
         
         for exp_idx, config in enumerate(self.configs):
@@ -1014,6 +1101,9 @@ class AutoExperimentRunner(ExperimentRunner):
             print(f"Experiment {exp_idx + 1}: {self.variable_field}={var_value}")
             print(f"{'='*60}")
             
+            # Apply network latency if configured (need to apply before probing too)
+            self._apply_latency_from_config(config)
+            
             # Phase 1: Probe for optimal batch
             optimal_batch = self.run_probe_for_optimal_batch(config)
             self.optimal_batches[exp_idx] = optimal_batch
@@ -1022,6 +1112,9 @@ class AutoExperimentRunner(ExperimentRunner):
             config["BenchmarkConfig"]["batch"] = optimal_batch
             result = self.run_single_experiment(exp_idx, config, var_value)
             all_results.append(result)
+        
+        # Reset network latency after all experiments
+        self._reset_network_latency()
         
         # Generate summary CSV
         self.generate_csv(all_results)
@@ -1192,19 +1285,9 @@ def parse_results_only(results_dir: str):
     csv_path = f"{results_dir}/summary.csv"
     
     with open(csv_path, 'w') as f:
-        # Header
-        header = [
-            variable_field if variable_field else "experiment",
-            "throughput_avg",
-            "throughput_max",
-            "latency_mean",
-            "latency_median",
-            "latency_stddev",
-            "latency_p95",
-            "latency_p99",
-            "sample_count"
-        ]
-        f.write(",".join(header) + "\n")
+        # Write header
+        var_field_name = variable_field if variable_field else "experiment"
+        f.write(f"{var_field_name},avg_median_latency_ms,avg_max_throughput_txs,std_max_throughput_txs\n")
         
         # Data rows
         for result in all_results:
@@ -1212,21 +1295,19 @@ def parse_results_only(results_dir: str):
             throughputs = result["throughputs"]
             latency_stats = result["latency_stats"]
             
-            throughput_avg = statistics.mean(throughputs) if throughputs else 0
-            throughput_max = max(throughputs) if throughputs else 0
+            # Calculate median latency
+            avg_med_latency = latency_stats['median'] if latency_stats['median'] else 0
             
-            row = [
-                str(var_value),
-                f"{throughput_avg:.2f}",
-                f"{throughput_max:.2f}",
-                f"{latency_stats['mean']:.2f}",
-                f"{latency_stats['median']:.2f}",
-                f"{latency_stats['stddev']:.2f}",
-                f"{latency_stats['p95']:.2f}",
-                f"{latency_stats['p99']:.2f}",
-                str(latency_stats['count'])
-            ]
-            f.write(",".join(row) + "\n")
+            # Calculate average of max throughputs
+            avg_max_throughput = statistics.mean(throughputs) if throughputs else 0
+            
+            # Standard deviation (use 0 if only one sample)
+            if len(throughputs) > 1:
+                std_max_throughput = statistics.stdev(throughputs)
+            else:
+                std_max_throughput = 0.0
+            
+            f.write(f"{var_value},{avg_med_latency:.2f},{avg_max_throughput:.2f},{std_max_throughput:.2f}\n")
     
     print(f"\n{'#'*60}")
     print(f"Summary CSV written to: {csv_path}")

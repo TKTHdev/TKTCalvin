@@ -1,5 +1,5 @@
 {
-    "Latency": [[30,5], [60,10] ],
+    "Latency": [[0,0], [25,5],[50, 10],[75,15],[100,20]],
     "BenchmarkConfig": {
         "benchmark_type": "TPCC",
         "duration": 30,
@@ -8,8 +8,5 @@
     },
     "TPCCConfig": {
         "NumWarehouse": 100
-    },
-    "YCSBConfig": {
-        "contention_ratio": 0
     }
 }

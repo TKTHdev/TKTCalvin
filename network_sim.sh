@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Default Interface
-INTERFACE="eth0"
+INTERFACE="ens3"
 
 # Help Function
 usage() {
@@ -62,8 +62,14 @@ else
     usage
 fi
 
-# Verification Command
-VERIFY_CMD="tc qdisc show dev $INTERFACE"
+# Parse delay/jitter values for verification (extract numeric ms value)
+if [[ "$MODE" == "add" ]]; then
+    DELAY_MS=$(echo "$DELAY" | sed 's/[^0-9.]//g')
+    JITTER_MS=$(echo "$JITTER" | sed 's/[^0-9.]//g')
+    # Calculate expected range (delay - jitter to delay + jitter)
+    MIN_EXPECTED=$(echo "$DELAY_MS - $JITTER_MS" | bc)
+    MAX_EXPECTED=$(echo "$DELAY_MS + $JITTER_MS" | bc)
+fi
 
 echo "---------------------------------------------------"
 echo "Starting Network Emulation script..."
@@ -71,8 +77,16 @@ echo "Mode: $MODE"
 echo "Target Interface: $INTERFACE"
 if [[ "$MODE" == "add" ]]; then
     echo "Settings: Delay $DELAY +/- $JITTER"
+    echo "Expected latency range: ${MIN_EXPECTED}ms - ${MAX_EXPECTED}ms"
 fi
 echo "---------------------------------------------------"
+
+# Function to get ping latency (returns average of 2 pings)
+get_ping_latencies() {
+    local target_ip=$1
+    # Ping 2 times and extract the time values
+    ping -c 2 -W 2 "$target_ip" 2>/dev/null | grep "time=" | sed 's/.*time=\([0-9.]*\).*/\1/'
+}
 
 # Loop through IPs
 while IFS= read -r IP || [ -n "$IP" ]; do
@@ -81,9 +95,13 @@ while IFS= read -r IP || [ -n "$IP" ]; do
 
     echo "Processing $IP..."
 
+    # strip whitespace
+    IP=$(echo "$IP" | xargs)
+
     # 1. Apply the Configuration
     # We use StrictHostKeyChecking=no to avoid hanging on new hosts
-    ssh -o StrictHostKeyChecking=no "$IP" "$CMD" 2>/dev/null
+    # -n prevents ssh from reading stdin (which would consume remaining IPs)
+    ssh -n -o StrictHostKeyChecking=no "$IP" "$CMD" 2>/dev/null
     
     if [ $? -eq 0 ]; then
         echo "  [✓] Command applied successfully."
@@ -91,14 +109,49 @@ while IFS= read -r IP || [ -n "$IP" ]; do
         echo "  [X] Failed to apply command (Machine might be down or rule already exists)."
     fi
 
-    # 2. Verification Step
-    echo "  [?] Verifying configuration on remote host..."
-    CURRENT_CONFIG=$(ssh -o StrictHostKeyChecking=no "$IP" "$VERIFY_CMD" 2>/dev/null)
+    # 2. Verification Step using ping
+    echo "  [?] Verifying configuration via ping (2 attempts)..."
     
-    if [[ -z "$CURRENT_CONFIG" ]]; then
-        echo "      Result: No configuration found (Clean)."
+    PING_RESULTS=$(get_ping_latencies "$IP")
+    
+    if [[ -z "$PING_RESULTS" ]]; then
+        echo "      [X] Failed to ping host - host may be unreachable."
     else
-        echo "      Result: $CURRENT_CONFIG"
+        VERIFIED=false
+        PING_COUNT=0
+        
+        while IFS= read -r LATENCY; do
+            PING_COUNT=$((PING_COUNT + 1))
+            echo "      Ping $PING_COUNT: ${LATENCY}ms"
+            
+            if [[ "$MODE" == "add" ]]; then
+                # Check if latency falls within expected range
+                IN_RANGE=$(echo "$LATENCY >= $MIN_EXPECTED && $LATENCY <= $MAX_EXPECTED" | bc)
+                if [[ "$IN_RANGE" -eq 1 ]]; then
+                    VERIFIED=true
+                fi
+            elif [[ "$MODE" == "del" ]]; then
+                # Check if latency is less than 5ms (no artificial delay)
+                LOW_LATENCY=$(echo "$LATENCY < 5" | bc)
+                if [[ "$LOW_LATENCY" -eq 1 ]]; then
+                    VERIFIED=true
+                fi
+            fi
+        done <<< "$PING_RESULTS"
+        
+        if [[ "$MODE" == "add" ]]; then
+            if [[ "$VERIFIED" == true ]]; then
+                echo "      [✓] Verification PASSED: At least one ping within expected range (${MIN_EXPECTED}ms - ${MAX_EXPECTED}ms)"
+            else
+                echo "      [X] Verification FAILED: No ping within expected range (${MIN_EXPECTED}ms - ${MAX_EXPECTED}ms)"
+            fi
+        elif [[ "$MODE" == "del" ]]; then
+            if [[ "$VERIFIED" == true ]]; then
+                echo "      [✓] Verification PASSED: At least one ping < 5ms (no artificial delay)"
+            else
+                echo "      [X] Verification FAILED: All pings >= 5ms (delay may still be active)"
+            fi
+        fi
     fi
     echo "---------------------------------------------------"
 
