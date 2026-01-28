@@ -1,0 +1,12 @@
+{
+    "Latency": null,
+    "BenchmarkConfig": {
+        "benchmark_type": "YCSB",
+        "duration": 30,
+        "batch": [1,5,10,20,40,60,80,100],
+        "servers": 5
+    },
+    "YCSBConfig": {
+        "contention_ratio": 0
+    }
+}
