@@ -1,0 +1,12 @@
+{
+    "Latency": [[0,0], [25,5],[50, 10],[75,15],[100,20]],
+    "BenchmarkConfig": {
+        "benchmark_type": "TPCC",
+        "duration": 30,
+        "batch": 25,
+        "servers": 3
+    },
+    "TPCCConfig": {
+        "NumWarehouse": 100
+    }
+}

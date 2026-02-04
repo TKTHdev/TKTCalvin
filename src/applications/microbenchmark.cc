@@ -520,7 +520,7 @@ LOG(ERROR) <<local_replica_<< ":*********In Execute:  Generate a remaster  txn, 
 
 
       if (++val->access_cnt > LAST_N_TOUCH) {
-        for (uint32 j = 0; j < REPLICA_SIZE; j++) {
+        for (uint32 j = 0; j < MAX_REPLICA_SIZE; j++) {
           val->access_pattern[j] = 0;
         }
         val->access_cnt = 0;

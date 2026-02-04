@@ -18,26 +18,7 @@
 using std::string;
 
 const string& ClusterManager::ssh_key(uint64 m) {
-  if (config_.all_nodes_size() < 3) {
-    return ssh_key1_;
-  }
-  int repsize = config_.all_nodes_size() / num_replicas_;
-
-  if (m / repsize == 0) {
-    return ssh_key1_;
-  } else if (m / repsize == 1) {
-    return ssh_key2_;
-  } else if (m / repsize == 2) {
-    return ssh_key3_;
-  } else if (m / repsize == 3) {
-    return ssh_key4_;
-  } else if (m / repsize == 4) {
-    return ssh_key5_;
-  } else if (m / repsize == 5) {
-    return ssh_key6_;
-  }
-
-  LOG(FATAL) << "bad machine id: " << m;
+  return ssh_key_;
 }
 
 void* SystemFunction(void* arg) {

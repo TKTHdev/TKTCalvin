@@ -20,12 +20,14 @@ LocalPaxos::LocalPaxos(ClusterConfig* config, ConnectionMultiplexer* connection,
 
   received_synchronize_ack = false;
 
-    for (uint32 i = 0; i < 3; i++) {
-      uint64 id = local_replica_ * configuration_->nodes_per_replica() + i;
-      if (id < (local_replica_ + 1) * configuration_->nodes_per_replica()) {
-        participants_.push_back(local_replica_ * configuration_->nodes_per_replica() + i);
-      }
+  // With 1 node per replica, each node is its own Paxos participant
+  uint32 nodes_per_rep = configuration_->nodes_per_replica();
+  for (uint32 i = 0; i < nodes_per_rep && i < 3; i++) {
+    uint64 id = local_replica_ * nodes_per_rep + i;
+    if (id < (local_replica_ + 1) * nodes_per_rep) {
+      participants_.push_back(id);
     }
+  }
 
   
   connection_->NewChannel("paxos_log_");

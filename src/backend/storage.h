@@ -10,7 +10,7 @@
 #include <utility> 
 #include "common/types.h"
 
-#define REPLICA_SIZE 3
+#define MAX_REPLICA_SIZE 64
 #define LAST_N_TOUCH 10000
 #define ACCESS_PATTERN_THRESHOLD  0.90
 
@@ -20,7 +20,7 @@ using std::make_pair;
 
 struct Record {
   Record(Value v, uint32 m) : value(v), master(m), counter(0) {
-    for (uint32 i = 0; i < REPLICA_SIZE; i++) {
+    for (uint32 i = 0; i < MAX_REPLICA_SIZE; i++) {
       access_pattern[i] = 0;
     }
     remastering = false;
@@ -28,7 +28,7 @@ struct Record {
   }
 
   Record(Value v, uint32 m, uint64 c) : value(v), master(m), counter(c) {
-    for (uint32 i = 0; i < REPLICA_SIZE; i++) {
+    for (uint32 i = 0; i < MAX_REPLICA_SIZE; i++) {
       access_pattern[i] = 0;
     }
     remastering = false;
@@ -41,7 +41,7 @@ struct Record {
   uint64 counter;
 
   // access pattern
-  uint32 access_pattern[REPLICA_SIZE];
+  uint32 access_pattern[MAX_REPLICA_SIZE];
   bool remastering;
   uint32 access_cnt;
 

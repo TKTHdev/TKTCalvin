@@ -1,0 +1,12 @@
+{
+    "Latency": [[0,0], [25,5],[50, 10],[75,15],[100,20]],
+    "BenchmarkConfig": {
+        "benchmark_type": "YCSB",
+        "duration": 30,
+        "batch": 1,
+        "servers": 3
+    },
+    "YCSBConfig": {
+        "contention_ratio": 0
+    }
+}
